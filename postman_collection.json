@@ -1,0 +1,344 @@
+{
+  "info": {
+    "_postman_id": "4d3913e7-b6ad-4b30-ab5c-2f3cf2a16aee",
+    "name": "Session Booking API",
+    "description": "Run in order against a freshly started server. The server seeds teachers, the user test@mail.com / Pass@123 and 50 AVAILABLE sessions (10 per day, 2026-11-16 to 2026-11-20) at startup. The two available-sessions requests page through the 10 seeded sessions on 2026-11-17 with limit 10: page 1 returns 10, page 2 returns 0. Page 1 also saves a teacherId; create session uses it for a new session tomorrow, which book, complete and user sessions then use. The last two requests log in as the seeded test user and list their sessions. Create user returns 201 the first time and 409 once newuser@mail.com exists.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+    "_exporter_id": "14565355"
+  },
+  "item": [
+    {
+      "name": "1 Create user (API 1)",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('201 created, or 409 if the email is already registered', () => pm.expect(pm.response.code).to.be.oneOf([201, 409]));",
+              "const body = pm.response.json();",
+              "if (pm.response.code === 201) {",
+              "  pm.test('no password hash', () => pm.expect(body).to.not.have.property('passwordHash'));",
+              "  pm.test('Location header', () => pm.expect(pm.response.headers.get('Location')).to.eql('/users/' + body._id));",
+              "} else {",
+              "  pm.test('409 explains the duplicate email', () => pm.expect(body.error).to.eql('email already exists'));",
+              "}"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"fullName\": \"Test User\",\n  \"email\": \"newuser@mail.com\",\n  \"phone\": \"+15550000001\",\n  \"password\": \"password123\"\n}"
+        },
+        "url": {
+          "raw": "{{baseUrl}}/users",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "users"
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "Login as test@mail.com",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test('status 200', () => pm.response.to.have.status(200));",
+              "pm.test('token only in HttpOnly cookie', () => {",
+              "  pm.expect(pm.response.json()).to.not.have.property('token');",
+              "  const cookie = pm.response.headers.get('Set-Cookie');",
+              "  pm.expect(cookie).to.include('token=');",
+              "  pm.expect(cookie).to.include('HttpOnly');",
+              "  pm.expect(cookie).to.include('SameSite=Strict');",
+              "});",
+              "pm.collectionVariables.set('userId', pm.response.json().user._id);"
+            ],
+            "type": "text/javascript",
+            "packages": {},
+            "requests": {}
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"email\": \"test@mail.com\",\n  \"password\": \"Pass@123\"\n}"
+        },
+        "url": {
+          "raw": "{{baseUrl}}/auth/login",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "auth",
+            "login"
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "3 Available sessions (API 3) - 2026-11-17 page 1",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('status 200', () => pm.response.to.have.status(200));",
+              "const r = pm.response.json();",
+              "pm.test('page shape', () => pm.expect(r).to.include.keys('items', 'page', 'limit', 'total', 'totalPages'));",
+              "pm.test('page 1 of 10', () => {",
+              "  pm.expect(r.page).to.eql(1);",
+              "  pm.expect(r.limit).to.eql(10);",
+              "  pm.expect(r.totalPages).to.eql(Math.ceil(r.total / 10));",
+              "  pm.expect(r.items.length).to.eql(Math.max(0, Math.min(10, r.total - 0)));",
+              "});",
+              "pm.test('all AVAILABLE on 2026-11-17, earliest first', () => {",
+              "  r.items.forEach((s) => {",
+              "    pm.expect(s.status).to.eql('AVAILABLE');",
+              "    pm.expect(s.startTime.slice(0, 10)).to.eql('2026-11-17');",
+              "  });",
+              "  const times = r.items.map((s) => s.startTime);",
+              "  pm.expect(times).to.eql([...times].sort());",
+              "});",
+              "pm.test('seeded sessions found, teacher joined', () => {",
+              "  pm.expect(r.items.length).to.be.above(0);",
+              "  pm.expect(r.items[0].teacher).to.include.keys('fullName', 'specialization', 'experience');",
+              "});",
+              "if (r.items.length) pm.collectionVariables.set('teacherId', r.items[0].teacher._id);"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{baseUrl}}/sessions/available?dateTimestamp=2026-11-17&page=1&limit=10",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "sessions",
+            "available"
+          ],
+          "query": [
+            {
+              "key": "dateTimestamp",
+              "value": "2026-11-17"
+            },
+            {
+              "key": "page",
+              "value": "1"
+            },
+            {
+              "key": "limit",
+              "value": "10"
+            }
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "2 Create session (API 2)",
+      "event": [
+        {
+          "listen": "prerequest",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "const start = new Date(); start.setUTCDate(start.getUTCDate() + 1); start.setUTCHours(10, 0, 0, 0);",
+              "pm.collectionVariables.set('startTime', start.toISOString());",
+              "pm.collectionVariables.set('endTime', new Date(start.getTime() + 3600000).toISOString());"
+            ]
+          }
+        },
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('status 201', () => pm.response.to.have.status(201));",
+              "const s = pm.response.json();",
+              "pm.collectionVariables.set('sessionId', s._id);",
+              "pm.test('AVAILABLE by default', () => pm.expect(s.status).to.eql('AVAILABLE'));",
+              "pm.test('Location header', () => pm.expect(pm.response.headers.get('Location')).to.eql('/sessions/' + pm.response.json()._id));"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"teacherId\": \"{{teacherId}}\",\n  \"startTime\": \"{{startTime}}\",\n  \"endTime\": \"{{endTime}}\"\n}"
+        },
+        "url": {
+          "raw": "{{baseUrl}}/sessions",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "sessions"
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "4 Book session (API 4)",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('status 200', () => pm.response.to.have.status(200));",
+              "pm.test('BOOKED', () => pm.expect(pm.response.json().status).to.eql('BOOKED'));"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [],
+        "url": {
+          "raw": "{{baseUrl}}/sessions/{{sessionId}}/book",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "sessions",
+            "{{sessionId}}",
+            "book"
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "5 Complete session (API 5)",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('status 200', () => pm.response.to.have.status(200));",
+              "const s = pm.response.json();",
+              "pm.test('COMPLETED with completedAt', () => { pm.expect(s.status).to.eql('COMPLETED'); pm.expect(s.completedAt).to.be.a('string'); });"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "PATCH",
+        "header": [],
+        "url": {
+          "raw": "{{baseUrl}}/sessions/{{sessionId}}/complete",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "sessions",
+            "{{sessionId}}",
+            "complete"
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "6 User sessions (API 6)",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('status 200', () => pm.response.to.have.status(200));",
+              "const r = pm.response.json();",
+              "const id = pm.collectionVariables.get('sessionId');",
+              "pm.test('session from this run is completed, not upcoming', () => {",
+              "  pm.expect(r.completed.items.map((s) => s._id)).to.include(id);",
+              "  pm.expect(r.upcoming.items.map((s) => s._id)).to.not.include(id);",
+              "});"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{baseUrl}}/users/{{userId}}/sessions",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "users",
+            "{{userId}}",
+            "sessions"
+          ]
+        }
+      },
+      "response": []
+    }
+  ],
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "http://localhost:3000"
+    },
+    {
+      "key": "teacherId",
+      "value": ""
+    },
+    {
+      "key": "userId",
+      "value": ""
+    },
+    {
+      "key": "sessionId",
+      "value": ""
+    },
+    {
+      "key": "startTime",
+      "value": ""
+    },
+    {
+      "key": "endTime",
+      "value": ""
+    }
+  ]
+}
